@@ -12,7 +12,7 @@ pcre_jit on;
 events {
     multi_accept        on;
     worker_connections  {{ $cfg.maxWorkerConnections }};
-    use                 epoll; 
+    use                 epoll;
 }
 
 http {
@@ -20,7 +20,7 @@ http {
 
     # lus sectrion to return proper error codes when custom pages are used
     lua_package_path '.?.lua;./etc/nginx/lua/?.lua;/etc/nginx/lua/vendor/lua-resty-http/lib/?.lua;';
-    init_by_lua_block {        
+    init_by_lua_block {
         require("error_page")
     }
 
@@ -28,7 +28,7 @@ http {
     aio                 threads;
     tcp_nopush          on;
     tcp_nodelay         on;
-    
+
     log_subrequest      on;
 
     reset_timedout_connection on;
@@ -46,7 +46,7 @@ http {
     gzip_comp_level 5;
     gzip_http_version 1.1;
     gzip_min_length 256;
-    gzip_types {{ $cfg.gzipTypes }};    
+    gzip_types {{ $cfg.gzipTypes }};
     gzip_proxied any;
     gzip_vary on;
     {{ end }}
@@ -220,7 +220,7 @@ http {
             access_log off;
             return 200;
         }
-       
+
         location /health-check {
             access_log off;
             proxy_pass http://127.0.0.1:10249/healthz;
@@ -250,8 +250,8 @@ http {
             content_by_lua_block {
                 openURL(503)
             }
-        }        
-    }    
+        }
+    }
 }
 
 
