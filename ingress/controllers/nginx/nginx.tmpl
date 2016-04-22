@@ -128,7 +128,7 @@ http {
     {{ end }}
 
     # Custom error pages
-    proxy_intercept_errors on;
+    # proxy_intercept_errors on;
 
     error_page 403 = @custom_403;
     error_page 404 = @custom_404;
