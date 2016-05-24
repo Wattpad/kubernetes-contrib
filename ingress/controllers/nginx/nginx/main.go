@@ -280,7 +280,7 @@ func newDefaultNginxCfg() nginxConfiguration {
 }
 
 // NewManager ...
-func NewManager(kubeClient *client.Client) *Manager {
+func NewManager(kubeClient *client.Client) (*Manager, error) {
 	ngx := &Manager{
 		ConfigFile:        "/etc/nginx/nginx.conf",
 		defCfg:            newDefaultNginxCfg(),
@@ -293,9 +293,12 @@ func NewManager(kubeClient *client.Client) *Manager {
 
 	ngx.sslDHParam = ngx.SearchDHParamFile(sslDirectory)
 
-	ngx.loadTemplate()
+	err := ngx.loadTemplate()
+	if err != nil {
+		return nil, fmt.Errorf("Error creating Manager: %v", err)
+	}
 
-	return ngx
+	return ngx, nil
 }
 
 func (nginx *Manager) createCertsDir(base string) {
