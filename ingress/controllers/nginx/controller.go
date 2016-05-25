@@ -887,12 +887,12 @@ func (lbc *loadBalancerController) Stop() error {
 	// Only try draining the workqueue if we haven't already.
 	if !lbc.shutdown {
 
-		lbc.removeFromIngress()
-
 		close(lbc.stopCh)
 		glog.Infof("shutting down controller queues")
 		lbc.shutdown = true
 		lbc.syncQueue.shutdown()
+
+		lbc.removeFromIngress()
 
 		return nil
 	}
