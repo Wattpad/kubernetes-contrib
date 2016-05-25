@@ -43,9 +43,13 @@ var (
 	}
 )
 
-func (ngx *Manager) loadTemplate() {
-	tmpl, _ := template.New("nginx.tmpl").Funcs(funcMap).ParseFiles(tmplPath)
+func (ngx *Manager) loadTemplate() error {
+	tmpl, err := template.New("nginx.tmpl").Funcs(funcMap).ParseFiles(tmplPath)
+	if err != nil {
+		return fmt.Errorf("Error loading nginx config template: %v\n", err)
+	}
 	ngx.template = tmpl
+	return nil
 }
 
 func (ngx *Manager) writeCfg(cfg nginxConfiguration, ingressCfg IngressConfig) (bool, error) {
