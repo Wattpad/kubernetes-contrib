@@ -119,11 +119,16 @@ func newLoadBalancerController(kubeClient *client.Client, resyncPeriod time.Dura
 	eventBroadcaster.StartLogging(glog.Infof)
 	eventBroadcaster.StartRecordingToSink(kubeClient.Events(namespace))
 
+	nginxManager, err := nginx.NewManager(kubeClient)
+	if err != nil {
+		return nil, fmt.Errorf("Error creating loadBalancerController: %v", err)
+	}
+
 	lbc := loadBalancerController{
 		client:       kubeClient,
 		stopCh:       make(chan struct{}),
 		podInfo:      runtimeInfo,
-		nginx:        nginx.NewManager(kubeClient),
+		nginx:        nginxManager,
 		nxgConfigMap: nxgConfigMapName,
 		tcpConfigMap: tcpConfigMapName,
 		udpConfigMap: udpConfigMapName,
@@ -882,12 +887,12 @@ func (lbc *loadBalancerController) Stop() error {
 	// Only try draining the workqueue if we haven't already.
 	if !lbc.shutdown {
 
-		lbc.removeFromIngress()
-
 		close(lbc.stopCh)
 		glog.Infof("shutting down controller queues")
 		lbc.shutdown = true
 		lbc.syncQueue.shutdown()
+
+		lbc.removeFromIngress()
 
 		return nil
 	}
