@@ -18,12 +18,14 @@ package main
 
 import (
 	"flag"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"time"
 
 	"k8s.io/contrib/cluster-autoscaler/config"
+	gce_provider "k8s.io/contrib/cluster-autoscaler/provider/gce"
 	"k8s.io/contrib/cluster-autoscaler/simulator"
 	"k8s.io/contrib/cluster-autoscaler/utils/gce"
 	kube_api "k8s.io/kubernetes/pkg/api"
@@ -81,21 +83,20 @@ func main() {
 	}
 
 	// GCE Manager
-	var gceManager *gce.GceManager
-	var gceError error
+	var config io.Reader
 	if *cloudConfig != "" {
 		config, fileErr := os.Open(*cloudConfig)
 		if fileErr != nil {
-			glog.Fatalf("Couldn't open cloud provider configuration %s: %#v", *cloudConfig, err)
+			glog.Fatalf("Couldn't open cloud provider configuration %s: %#v", *cloudConfig, fileErr)
 		}
 		defer config.Close()
-		gceManager, gceError = gce.CreateGceManager(migConfigs, config)
-	} else {
-		gceManager, gceError = gce.CreateGceManager(migConfigs, nil)
 	}
+	gceManager, gceError := gce.CreateGceManager(migConfigs, config)
 	if gceError != nil {
 		glog.Fatalf("Failed to create GCE Manager: %v", err)
 	}
+
+	provider := gce_provider.NewGceProvider(gceManager, migConfigs)
 
 	kubeClient := kube_client.NewOrDie(kubeConfig)
 
@@ -133,8 +134,14 @@ func main() {
 					continue
 				}
 
-				if err := CheckMigsAndNodes(nodes, gceManager); err != nil {
-					glog.Warningf("Cluster is not ready for autoscaling: %v", err)
+				ready, err := provider.AreAllNodeGroupsReady(nodes)
+				if err != nil {
+					glog.Warningf("Error checking nodeGroup readiness: %v", err)
+					continue
+				}
+
+				if !ready {
+					glog.Warningf("Cluster is not ready for autoscaling")
 					continue
 				}
 
@@ -186,7 +193,7 @@ func main() {
 				} else {
 					scaleUpStart := time.Now()
 					updateLastTime("scaleup")
-					scaledUp, err := ScaleUp(unschedulablePodsToHelp, nodes, migConfigs, gceManager, kubeClient, predicateChecker, recorder)
+					scaledUp, err := ScaleUp(unschedulablePodsToHelp, nodes, provider, kubeClient, predicateChecker, recorder)
 
 					updateDuration("scaleup", scaleUpStart)
 
@@ -243,7 +250,7 @@ func main() {
 							unneededNodes,
 							*scaleDownUnneededTime,
 							allScheduled,
-							gceManager, kubeClient, predicateChecker)
+							provider, kubeClient, predicateChecker)
 
 						updateDuration("scaledown", scaleDownStart)
 

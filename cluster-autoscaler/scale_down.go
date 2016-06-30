@@ -20,9 +20,8 @@ import (
 	"fmt"
 	"time"
 
-	"k8s.io/contrib/cluster-autoscaler/config"
+	"k8s.io/contrib/cluster-autoscaler/provider"
 	"k8s.io/contrib/cluster-autoscaler/simulator"
-	"k8s.io/contrib/cluster-autoscaler/utils/gce"
 	kube_api "k8s.io/kubernetes/pkg/api"
 	kube_client "k8s.io/kubernetes/pkg/client/unversioned"
 	"k8s.io/kubernetes/plugin/pkg/scheduler/schedulercache"
@@ -106,7 +105,7 @@ func ScaleDown(
 	unneededNodes map[string]time.Time,
 	unneededTime time.Duration,
 	pods []*kube_api.Pod,
-	gceManager *gce.GceManager,
+	provider provider.Provider,
 	client *kube_client.Client,
 	predicateChecker *simulator.PredicateChecker) (ScaleDownResult, error) {
 
@@ -122,29 +121,15 @@ func ScaleDown(
 				continue
 			}
 
-			// Check mig size.
-			instance, err := config.InstanceConfigFromProviderId(node.Spec.ProviderID)
+			scaleDownIsPossible, err := provider.IsScaleDownPossible(node)
 			if err != nil {
-				glog.Errorf("Error while parsing providerid of %s: %v", node.Name, err)
-				continue
-			}
-			migConfig, err := gceManager.GetMigForInstance(instance)
-			if err != nil {
-				glog.Errorf("Error while checking mig config for instance %v: %v", instance, err)
-				continue
-			}
-			size, err := gceManager.GetMigSize(migConfig)
-			if err != nil {
-				glog.Errorf("Error while checking mig size for instance %v: %v", instance, err)
+				glog.Errorf("Error checking for scale-down candidacy for node %v: %v", node.Name, err)
 				continue
 			}
 
-			if size <= int64(migConfig.MinSize) {
-				glog.V(1).Infof("Skipping %s - mig min size reached", node.Name)
-				continue
+			if scaleDownIsPossible {
+				candidates = append(candidates, node)
 			}
-
-			candidates = append(candidates, node)
 		}
 	}
 	if len(candidates) == 0 {
@@ -162,14 +147,10 @@ func ScaleDown(
 	}
 	nodeToRemove := nodesToRemove[0]
 	glog.Infof("Removing %s", nodeToRemove.Name)
-	instanceConfig, err := config.InstanceConfigFromProviderId(nodeToRemove.Spec.ProviderID)
-	if err != nil {
-		return ScaleDownError, fmt.Errorf("Failed to get instance config for %s: %v", nodeToRemove.Name, err)
-	}
 
-	err = gceManager.DeleteInstances([]*config.InstanceConfig{instanceConfig})
+	err = provider.DeleteNode(nodeToRemove)
 	if err != nil {
-		return ScaleDownError, fmt.Errorf("Failed to delete %v: %v", instanceConfig, err)
+		return ScaleDownError, fmt.Errorf("Failed to delete %v: %v", nodeToRemove, err)
 	}
 
 	return ScaleDownNodeDeleted, nil
