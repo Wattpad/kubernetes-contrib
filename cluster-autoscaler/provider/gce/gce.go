@@ -91,6 +91,41 @@ func (g *GceProvider) GetNodeGroups(nodes []*kube_api.Node) ([]provider.NodeGrou
 	return nodeGroups, nil
 }
 
+func (g *GceProvider) AreAllNodeGroupsReady(existingNodes []*kube_api.Node) (bool, error) {
+	migCount := make(map[string]int)
+	migs := make(map[string]*config.MigConfig)
+	for _, node := range existingNodes {
+		instanceConfig, err := config.InstanceConfigFromProviderId(node.Spec.ProviderID)
+		if err != nil {
+			return false, err
+		}
+
+		migConfig, err := g.Manager.GetMigForInstance(instanceConfig)
+		if err != nil {
+			return false, err
+		}
+		if migConfig == nil {
+			continue
+		}
+		url := migConfig.Url()
+		count, _ := migCount[url]
+		migCount[url] = count + 1
+		migs[url] = migConfig
+	}
+	for url, mig := range migs {
+		size, err := g.Manager.GetMigSize(mig)
+		if err != nil {
+			return false, err
+		}
+		count := migCount[url]
+		if size != int64(count) {
+			glog.Warningf("wrong number of nodes for mig: %s expected: %d actual: %d", url, size, count)
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
 type gceNodeGroup struct {
 	manager    *gce.GceManager
 	migConfig  *config.MigConfig

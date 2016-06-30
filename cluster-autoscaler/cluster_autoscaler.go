@@ -18,6 +18,7 @@ package main
 
 import (
 	"flag"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -82,18 +83,15 @@ func main() {
 	}
 
 	// GCE Manager
-	var gceManager *gce.GceManager
-	var gceError error
+	var config io.Reader
 	if *cloudConfig != "" {
 		config, fileErr := os.Open(*cloudConfig)
 		if fileErr != nil {
-			glog.Fatalf("Couldn't open cloud provider configuration %s: %#v", *cloudConfig, err)
+			glog.Fatalf("Couldn't open cloud provider configuration %s: %#v", *cloudConfig, fileErr)
 		}
 		defer config.Close()
-		gceManager, gceError = gce.CreateGceManager(migConfigs, config)
-	} else {
-		gceManager, gceError = gce.CreateGceManager(migConfigs, nil)
 	}
+	gceManager, gceError := gce.CreateGceManager(migConfigs, config)
 	if gceError != nil {
 		glog.Fatalf("Failed to create GCE Manager: %v", err)
 	}
@@ -136,8 +134,14 @@ func main() {
 					continue
 				}
 
-				if err := CheckMigsAndNodes(nodes, gceManager); err != nil {
-					glog.Warningf("Cluster is not ready for autoscaling: %v", err)
+				ready, err := provider.AreAllNodeGroupsReady(nodes)
+				if err != nil {
+					glog.Warningf("Error checking nodeGroup readiness: %v", err)
+					continue
+				}
+
+				if !ready {
+					glog.Warningf("Cluster is not ready for autoscaling")
 					continue
 				}
 

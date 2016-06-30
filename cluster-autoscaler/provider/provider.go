@@ -6,8 +6,9 @@ import (
 
 type Provider interface {
 	IsScaleDownPossible(node *kube_api.Node) (bool, error)
+	AreAllNodeGroupsReady(existingNodes []*kube_api.Node) (bool, error)
 	DeleteNode(node *kube_api.Node) error
-	GetNodeGroups([]*kube_api.Node) ([]NodeGroup, error)
+	GetNodeGroups(existingNodes []*kube_api.Node) ([]NodeGroup, error)
 }
 
 type NodeGroup interface {
