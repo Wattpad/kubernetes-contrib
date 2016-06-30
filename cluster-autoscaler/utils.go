@@ -61,7 +61,7 @@ func NewUnschedulablePodLister(kubeClient *kube_client.Client) *UnschedulablePod
 		string(kube_api.PodSucceeded) + ",status.phase!=" + string(kube_api.PodFailed))
 	podListWatch := cache.NewListWatchFromClient(kubeClient, "pods", kube_api.NamespaceAll, selector)
 	store := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc})
-	podLister := &cache.StoreToPodLister{store}
+	podLister := &cache.StoreToPodLister{Indexer: store}
 	podReflector := cache.NewReflector(podListWatch, &kube_api.Pod{}, store, time.Hour)
 	podReflector.Run()
 
@@ -87,7 +87,7 @@ func NewScheduledPodLister(kubeClient *kube_client.Client) *ScheduledPodLister {
 		string(kube_api.PodSucceeded) + ",status.phase!=" + string(kube_api.PodFailed))
 	podListWatch := cache.NewListWatchFromClient(kubeClient, "pods", kube_api.NamespaceAll, selector)
 	store := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc})
-	podLister := &cache.StoreToPodLister{store}
+	podLister := &cache.StoreToPodLister{Indexer: store}
 	podReflector := cache.NewReflector(podListWatch, &kube_api.Pod{}, store, time.Hour)
 	podReflector.Run()
 
