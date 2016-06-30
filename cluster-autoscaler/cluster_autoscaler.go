@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"k8s.io/contrib/cluster-autoscaler/config"
+	gce_provider "k8s.io/contrib/cluster-autoscaler/provider/gce"
 	"k8s.io/contrib/cluster-autoscaler/simulator"
 	"k8s.io/contrib/cluster-autoscaler/utils/gce"
 	kube_api "k8s.io/kubernetes/pkg/api"
@@ -96,6 +97,8 @@ func main() {
 	if gceError != nil {
 		glog.Fatalf("Failed to create GCE Manager: %v", err)
 	}
+
+	provider := gce_provider.NewGceProvider(gceManager, migConfigs)
 
 	kubeClient := kube_client.NewOrDie(kubeConfig)
 
@@ -186,7 +189,7 @@ func main() {
 				} else {
 					scaleUpStart := time.Now()
 					updateLastTime("scaleup")
-					scaledUp, err := ScaleUp(unschedulablePodsToHelp, nodes, migConfigs, gceManager, kubeClient, predicateChecker, recorder)
+					scaledUp, err := ScaleUp(unschedulablePodsToHelp, nodes, provider, kubeClient, predicateChecker, recorder)
 
 					updateDuration("scaleup", scaleUpStart)
 
@@ -243,7 +246,7 @@ func main() {
 							unneededNodes,
 							*scaleDownUnneededTime,
 							allScheduled,
-							gceManager, kubeClient, predicateChecker)
+							provider, kubeClient, predicateChecker)
 
 						updateDuration("scaledown", scaleDownStart)
 
