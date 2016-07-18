@@ -159,7 +159,7 @@ func (m *AwsManager) GetAsgForInstance(instance *AwsRef) (*Asg, error) {
 		return config, nil
 	}
 
-	for _, asg := m.asgs {
+	for _, asg := range m.asgs {
 		// Instances in an ASG don't actually need to be in the same AZ, but
 		// for early development of the cluster autoscaler, instances attached to an ASG but have the
 		// the same AZ as the ASG.

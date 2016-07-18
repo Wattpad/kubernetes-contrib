@@ -25,7 +25,7 @@ const (
 	awsUrlSchema        = "https"
 	awsDomainSufix      = "googleapis.com/compute/v1/projects/"
 	awsPrefix           = awsUrlSchema + "://content." + awsDomainSufix
-	instanceUrlTemplate = awsPrefix + "%s/zones/%s/instances/%s"
+	instanceUrlTemplate = awsPrefix + "%s/zones/%s/instances/"
 	asgUrlTemplate      = awsPrefix + "%s/zones/%s/instanceGroups/"
 )
 
@@ -37,13 +37,13 @@ func ParseAsgUrl(url string) (zone string, name string, err error) {
 
 // ParseInstanceUrl expects url in format:
 // https://content.googleapis.com/compute/v1/projects/<project-id>/zones/<zone>/instances/<name>
-func ParseInstanceUrl(url string) (project string, zone string, name string, err error) {
+func ParseInstanceUrl(url string) (zone string, name string, err error) {
 	return parseAwsUrl(url, "instances")
 }
 
 // GenerateInstanceUrl generates url for instance.
-func GenerateInstanceUrl(project, zone, name string) string {
-	return fmt.Sprintf(instanceUrlTemplate, project, zone, name)
+func GenerateInstanceUrl(zone, name string) string {
+	return fmt.Sprintf(instanceUrlTemplate, zone, name)
 }
 
 // GenerateAsgUrl generates url for instance.
@@ -54,17 +54,17 @@ func GenerateAsgUrl(zone, name string) string {
 func parseAwsUrl(url, expectedResource string) (zone string, name string, err error) {
 	errMsg := fmt.Errorf("Wrong url: expected format https://content.googleapis.com/compute/v1/projects/<project-id>/zones/<zone>/%s/<name>, got %s", expectedResource, url)
 	if !strings.Contains(url, awsDomainSufix) {
-		return "", "", "", errMsg
+		return "", "", errMsg
 	}
 	if !strings.HasPrefix(url, awsUrlSchema) {
-		return "", "", "", errMsg
+		return "", "", errMsg
 	}
 	splitted := strings.Split(strings.Split(url, awsDomainSufix)[1], "/")
 	if len(splitted) != 5 || splitted[1] != "zones" {
-		return "", "", "", errMsg
+		return "", "", errMsg
 	}
 	if splitted[3] != expectedResource {
-		return "", "", "", fmt.Errorf("Wrong resource in url: expected %s, got %s", expectedResource, splitted[3])
+		return "", "", fmt.Errorf("Wrong resource in url: expected %s, got %s", expectedResource, splitted[3])
 	}
 	zone = splitted[2]
 	name = splitted[4]
