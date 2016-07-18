@@ -83,24 +83,22 @@ func (aws *AwsCloudProvider) NodeGroupForNode(node *kube_api.Node) (cloudprovide
 
 // AwsRef contains s reference to some entity in AWS/GKE world.
 type AwsRef struct {
-	Project string
-	Zone    string
-	Name    string
+	Zone string
+	Name string
 }
 
 // AwsRefFromProviderId creates InstanceConfig object
 // from provider id which must be in format:
-// aws://<project-id>/<zone>/<name>
+// aws://<availability-zone>/<name>
 // TODO(piosz): add better check whether the id is correct
 func AwsRefFromProviderId(id string) (*AwsRef, error) {
 	splitted := strings.Split(id[6:], "/")
-	if len(splitted) != 3 {
-		return nil, fmt.Errorf("Wrong id: expected format aws://<project-id>/<zone>/<name>, got %v", id)
+	if len(splitted) != 2 {
+		return nil, fmt.Errorf("Wrong id: expected format aws://<availability-zone>/<name>, got %v", id)
 	}
 	return &AwsRef{
-		Project: splitted[0],
-		Zone:    splitted[1],
-		Name:    splitted[2],
+		Zone: splitted[0],
+		Name: splitted[1],
 	}, nil
 }
 
@@ -195,7 +193,7 @@ func (asg *Asg) DeleteNodes(nodes []*kube_api.Node) error {
 
 // Id returns asg url.
 func (asg *Asg) Id() string {
-	return GenerateAsgUrl(asg.Project, asg.Zone, asg.Name)
+	return GenerateAsgUrl(asg.Zone, asg.Name)
 }
 
 // Debug returns a debug string for the Asg.
@@ -231,7 +229,7 @@ func buildAsg(value string, awsManager *AwsManager) (*Asg, error) {
 	}
 
 	var err error
-	if asg.Project, asg.Zone, asg.Name, err = ParseAsgUrl(tokens[2]); err != nil {
+	if asg.Zone, asg.Name, err = ParseAsgUrl(tokens[2]); err != nil {
 		return nil, fmt.Errorf("failed to parse asg url: %s got error: %v", tokens[2], err)
 	}
 	return &asg, nil

@@ -26,12 +26,12 @@ const (
 	awsDomainSufix      = "googleapis.com/compute/v1/projects/"
 	awsPrefix           = awsUrlSchema + "://content." + awsDomainSufix
 	instanceUrlTemplate = awsPrefix + "%s/zones/%s/instances/%s"
-	asgUrlTemplate      = awsPrefix + "%s/zones/%s/instanceGroups/%s"
+	asgUrlTemplate      = awsPrefix + "%s/zones/%s/instanceGroups/"
 )
 
 // ParseAsgUrl expects url in format:
 // https://content.googleapis.com/compute/v1/projects/<project-id>/zones/<zone>/instanceGroups/<name>
-func ParseAsgUrl(url string) (project string, zone string, name string, err error) {
+func ParseAsgUrl(url string) (zone string, name string, err error) {
 	return parseAwsUrl(url, "instanceGroups")
 }
 
@@ -47,11 +47,11 @@ func GenerateInstanceUrl(project, zone, name string) string {
 }
 
 // GenerateAsgUrl generates url for instance.
-func GenerateAsgUrl(project, zone, name string) string {
-	return fmt.Sprintf(asgUrlTemplate, project, zone, name)
+func GenerateAsgUrl(zone, name string) string {
+	return fmt.Sprintf(asgUrlTemplate, zone, name)
 }
 
-func parseAwsUrl(url, expectedResource string) (project string, zone string, name string, err error) {
+func parseAwsUrl(url, expectedResource string) (zone string, name string, err error) {
 	errMsg := fmt.Errorf("Wrong url: expected format https://content.googleapis.com/compute/v1/projects/<project-id>/zones/<zone>/%s/<name>, got %s", expectedResource, url)
 	if !strings.Contains(url, awsDomainSufix) {
 		return "", "", "", errMsg
@@ -66,8 +66,7 @@ func parseAwsUrl(url, expectedResource string) (project string, zone string, nam
 	if splitted[3] != expectedResource {
 		return "", "", "", fmt.Errorf("Wrong resource in url: expected %s, got %s", expectedResource, splitted[3])
 	}
-	project = splitted[0]
 	zone = splitted[2]
 	name = splitted[4]
-	return project, zone, name, nil
+	return zone, name, nil
 }

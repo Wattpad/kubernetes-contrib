@@ -132,7 +132,7 @@ func (m *AwsManager) DeleteInstances(instances []*AwsRef) error {
 			return err
 		}
 		if asg != commonAsg {
-			return fmt.Errorf("Connot delete instances which don't belong to the same ASG.")
+			return fmt.Errorf("Cannot delete instances which don't belong to the same ASG.")
 		}
 	}
 
@@ -158,13 +158,26 @@ func (m *AwsManager) GetAsgForInstance(instance *AwsRef) (*Asg, error) {
 	if config, found := m.asgCache[*instance]; found {
 		return config, nil
 	}
-	// if err := m.regenerateCache(); err != nil {
-	// 	return nil, fmt.Errorf("Error while looking for ASG for instance %+v, error: %v", *instance, err)
-	// }
-	if config, found := m.asgCache[*instance]; found {
-		return config, nil
+
+	for _, asg := m.asgs {
+		// Instances in an ASG don't actually need to be in the same AZ, but
+		// for early development of the cluster autoscaler, instances attached to an ASG but have the
+		// the same AZ as the ASG.
+		if asg.config.Zone == instance.Zone {
+			if err := m.regenerateCache(); err != nil {
+				return nil, fmt.Errorf("Error while looking for ASG for instance %+v, error: %v", *instance, err)
+			}
+
+			if config, found := m.asgCache[*instance]; found {
+				return config, nil
+			}
+
+			return nil, fmt.Errorf("Instance %+v does not belong to any configured ASG", *instance)
+		}
 	}
-	return nil, fmt.Errorf("Instance %+v does not belong to any known ASG", *instance)
+
+	// Instance doesn't belong to any configured asg.
+	return nil, nil
 }
 
 func (m *AwsManager) regenerateCacheIgnoreError() {
