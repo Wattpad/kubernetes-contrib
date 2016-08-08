@@ -21,11 +21,14 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 
+	"k8s.io/contrib/cluster-autoscaler/cloudprovider"
+	"k8s.io/contrib/cluster-autoscaler/cloudprovider/aws"
+	"k8s.io/contrib/cluster-autoscaler/cloudprovider/gce"
 	"k8s.io/contrib/cluster-autoscaler/config"
 	"k8s.io/contrib/cluster-autoscaler/simulator"
-	"k8s.io/contrib/cluster-autoscaler/utils/gce"
 	kube_api "k8s.io/kubernetes/pkg/api"
 	kube_record "k8s.io/kubernetes/pkg/client/record"
 	kube_client "k8s.io/kubernetes/pkg/client/unversioned"
@@ -34,8 +37,22 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
+// MultiStringFlag is a flag for passing multiple parameters using same flag
+type MultiStringFlag []string
+
+// String returns string representation of the node groups.
+func (flag *MultiStringFlag) String() string {
+	return "[" + strings.Join(*flag, " ") + "]"
+}
+
+// Set adds a new configuration.
+func (flag *MultiStringFlag) Set(value string) error {
+	*flag = append(*flag, value)
+	return nil
+}
+
 var (
-	migConfigFlag           config.MigConfigFlag
+	nodeGroupsFlag          MultiStringFlag
 	address                 = flag.String("address", ":8085", "The address to expose prometheus metrics.")
 	kubernetes              = flag.String("kubernetes", "", "Kuberentes master location. Leave blank for default")
 	cloudConfig             = flag.String("cloud-config", "", "The path to the cloud provider configuration file.  Empty string for no configuration file.")
@@ -52,11 +69,15 @@ var (
 	scaleDownTrialInterval = flag.Duration("scale-down-trial-interval", 1*time.Minute,
 		"How often scale down possiblity is check")
 	scanInterval = flag.Duration("scan-interval", 10*time.Second, "How often cluster is reevaluated for scale up or down")
+
+	cloudProviderFlag = flag.String("cloud-provider", "gce", "Cloud provider type. Allowed values: gce")
 )
 
 func main() {
-	flag.Var(&migConfigFlag, "nodes", "sets min,max size and url of a MIG to be controlled by Cluster Autoscaler. "+
-		"Can be used multiple times. Format: <min>:<max>:<migurl>")
+	glog.Infof("Cluster Autoscaler %s", ClusterAutoscalerVersion)
+
+	flag.Var(&nodeGroupsFlag, "nodes", "sets min,max size and other configuration data for a node group in a format accepted by cloud provider."+
+		"Can be used multiple times. Format: <min>:<max>:<other...>")
 	flag.Parse()
 
 	go func() {
@@ -75,27 +96,6 @@ func main() {
 	if err != nil {
 		glog.Fatalf("Failed to build Kuberentes client configuration: %v", err)
 	}
-	migConfigs := make([]*config.MigConfig, 0, len(migConfigFlag))
-	for i := range migConfigFlag {
-		migConfigs = append(migConfigs, &migConfigFlag[i])
-	}
-
-	// GCE Manager
-	var gceManager *gce.GceManager
-	var gceError error
-	if *cloudConfig != "" {
-		config, fileErr := os.Open(*cloudConfig)
-		if fileErr != nil {
-			glog.Fatalf("Couldn't open cloud provider configuration %s: %#v", *cloudConfig, err)
-		}
-		defer config.Close()
-		gceManager, gceError = gce.CreateGceManager(migConfigs, config)
-	} else {
-		gceManager, gceError = gce.CreateGceManager(migConfigs, nil)
-	}
-	if gceError != nil {
-		glog.Fatalf("Failed to create GCE Manager: %v", err)
-	}
 
 	kubeClient := kube_client.NewOrDie(kubeConfig)
 
@@ -110,11 +110,60 @@ func main() {
 	lastScaleUpTime := time.Now()
 	lastScaleDownFailedTrial := time.Now()
 	unneededNodes := make(map[string]time.Time)
+	podLocationHints := make(map[string]string)
+	usageTracker := simulator.NewUsageTracker()
 
 	eventBroadcaster := kube_record.NewBroadcaster()
 	eventBroadcaster.StartLogging(glog.Infof)
 	eventBroadcaster.StartRecordingToSink(kubeClient.Events(""))
 	recorder := eventBroadcaster.NewRecorder(kube_api.EventSource{Component: "cluster-autoscaler"})
+
+	var cloudProvider cloudprovider.CloudProvider
+
+	if *cloudProviderFlag == "gce" {
+		// GCE Manager
+		var gceManager *gce.GceManager
+		var gceError error
+		if *cloudConfig != "" {
+			config, fileErr := os.Open(*cloudConfig)
+			if fileErr != nil {
+				glog.Fatalf("Couldn't open cloud provider configuration %s: %#v", *cloudConfig, err)
+			}
+			defer config.Close()
+			gceManager, gceError = gce.CreateGceManager(config)
+		} else {
+			gceManager, gceError = gce.CreateGceManager(nil)
+		}
+		if gceError != nil {
+			glog.Fatalf("Failed to create GCE Manager: %v", err)
+		}
+		cloudProvider, err = gce.BuildGceCloudProvider(gceManager, nodeGroupsFlag)
+		if err != nil {
+			glog.Fatalf("Failed to create GCE cloud provider: %v", err)
+		}
+	}
+
+	if *cloudProviderFlag == "aws" {
+		var awsManager *aws.AwsManager
+		var awsError error
+		if *cloudConfig != "" {
+			config, fileErr := os.Open(*cloudConfig)
+			if fileErr != nil {
+				glog.Fatalf("Couldn't open cloud provider configuration %s: %#v", *cloudConfig, err)
+			}
+			defer config.Close()
+			awsManager, awsError = aws.CreateAwsManager(config)
+		} else {
+			awsManager, awsError = aws.CreateAwsManager(nil)
+		}
+		if awsError != nil {
+			glog.Fatalf("Failed to create AWS Manager: %v", err)
+		}
+		cloudProvider, err = aws.BuildAwsCloudProvider(awsManager, nodeGroupsFlag)
+		if err != nil {
+			glog.Fatalf("Failed to create AWS cloud provider: %v", err)
+		}
+	}
 
 	for {
 		select {
@@ -133,7 +182,7 @@ func main() {
 					continue
 				}
 
-				if err := CheckMigsAndNodes(nodes, gceManager); err != nil {
+				if err := CheckGroupsAndNodes(nodes, cloudProvider); err != nil {
 					glog.Warningf("Cluster is not ready for autoscaling: %v", err)
 					continue
 				}
@@ -186,7 +235,7 @@ func main() {
 				} else {
 					scaleUpStart := time.Now()
 					updateLastTime("scaleup")
-					scaledUp, err := ScaleUp(unschedulablePodsToHelp, nodes, migConfigs, gceManager, kubeClient, predicateChecker, recorder)
+					scaledUp, err := ScaleUp(unschedulablePodsToHelp, nodes, cloudProvider, kubeClient, predicateChecker, recorder)
 
 					updateDuration("scaleup", scaleUpStart)
 
@@ -217,12 +266,15 @@ func main() {
 					updateLastTime("findUnneeded")
 					glog.V(4).Infof("Calculating unneded nodes")
 
-					unneededNodes = FindUnneededNodes(
+					usageTracker.CleanUp(time.Now().Add(-(*scaleDownUnneededTime)))
+					unneededNodes, podLocationHints = FindUnneededNodes(
 						nodes,
 						unneededNodes,
 						*scaleDownUtilizationThreshold,
 						allScheduled,
-						predicateChecker)
+						predicateChecker,
+						podLocationHints,
+						usageTracker, time.Now())
 
 					updateDuration("findUnneeded", unneededStart)
 
@@ -243,7 +295,11 @@ func main() {
 							unneededNodes,
 							*scaleDownUnneededTime,
 							allScheduled,
-							gceManager, kubeClient, predicateChecker)
+							cloudProvider,
+							kubeClient,
+							predicateChecker,
+							podLocationHints,
+							usageTracker)
 
 						updateDuration("scaledown", scaleDownStart)
 
@@ -251,14 +307,8 @@ func main() {
 						if err != nil {
 							glog.Errorf("Failed to scale down: %v", err)
 						} else {
-							if result == ScaleDownNodeDeleted {
-								// Clean the map with unneeded nodes to be super sure that the simulated
-								// deletions are made in the new context.
-								unneededNodes = make(map[string]time.Time, len(unneededNodes))
-							} else {
-								if result == ScaleDownError || result == ScaleDownNoNodeDeleted {
-									lastScaleDownFailedTrial = time.Now()
-								}
+							if result == ScaleDownError || result == ScaleDownNoNodeDeleted {
+								lastScaleDownFailedTrial = time.Now()
 							}
 						}
 					}
