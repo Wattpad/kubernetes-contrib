@@ -1,5 +1,5 @@
 VERSION=v1.1
-IMAGE=723255503624.dkr.ecr.us-east-1.amazonaws.com/cluster-autoscaler
+IMAGE=wattpad/cluster-autoscaler
 
 clean:
 		rm -f cluster-autoscaler
