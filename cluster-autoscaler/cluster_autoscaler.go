@@ -66,6 +66,8 @@ var (
 	scaleDownEnabled = flag.Bool("scale-down-enabled", true, "Should CA scale down the cluster")
 	scaleDownDelay   = flag.Duration("scale-down-delay", 10*time.Minute,
 		"Duration from the last scale up to the time when CA starts to check scale down options")
+	scaleUpDelay   = flag.Duration("scale-up-delay", 0*time.Minute,
+		"Duration from the last scale up to the time when CA starts to check scale up options")
 	scaleDownUnneededTime = flag.Duration("scale-down-unneeded-time", 10*time.Minute,
 		"How long the node should be unneeded before it is eligible for scale down")
 	scaleDownUtilizationThreshold = flag.Float64("scale-down-utilization-threshold", 0.5,
@@ -237,6 +239,8 @@ func run(_ <-chan struct{}) {
 					glog.V(1).Info("No unschedulable pods")
 				} else if *maxNodesTotal > 0 && len(nodes) >= *maxNodesTotal {
 					glog.V(1).Info("Max total nodes in cluster reached")
+				} else if lastScaleUpTime.Add(*scaleUpDelay).After(time.Now()) {
+					glog.V(1).Info("Waiting for scale up delay before scaling up")
 				} else {
 					scaleUpStart := time.Now()
 					updateLastTime("scaleup")
