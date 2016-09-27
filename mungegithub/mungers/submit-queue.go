@@ -29,7 +29,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"k8s.io/kubernetes/pkg/util"
+	utilclock "k8s.io/kubernetes/pkg/util/clock"
 
 	"k8s.io/contrib/mungegithub/admin"
 	"k8s.io/contrib/mungegithub/features"
@@ -47,6 +47,7 @@ import (
 )
 
 const (
+	approvedLabel                  = "approved"
 	lgtmLabel                      = "lgtm"
 	retestNotRequiredLabel         = "retest-not-required"
 	retestNotRequiredDocsOnlyLabel = "retest-not-required-docs-only"
@@ -177,7 +178,7 @@ type SubmitQueue struct {
 	prStatus      map[string]submitStatus // protected by sync.Mutex
 	statusHistory []submitStatus          // protected by sync.Mutex
 
-	clock         util.Clock
+	clock         utilclock.Clock
 	startTime     time.Time // when the queue started (duh)
 	lastMergeTime time.Time
 	totalMerges   int32
@@ -209,7 +210,7 @@ type SubmitQueue struct {
 }
 
 func init() {
-	clock := util.RealClock{}
+	clock := utilclock.RealClock{}
 	sq := &SubmitQueue{
 		clock:          clock,
 		startTime:      clock.Now(),

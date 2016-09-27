@@ -43,6 +43,7 @@ import (
 	"k8s.io/contrib/ingress/controllers/nginx/nginx"
 	"k8s.io/contrib/ingress/controllers/nginx/nginx/auth"
 	"k8s.io/contrib/ingress/controllers/nginx/nginx/config"
+	"k8s.io/contrib/ingress/controllers/nginx/nginx/cors"
 	"k8s.io/contrib/ingress/controllers/nginx/nginx/healthcheck"
 	"k8s.io/contrib/ingress/controllers/nginx/nginx/ingress"
 	"k8s.io/contrib/ingress/controllers/nginx/nginx/ipwhitelist"
@@ -89,24 +90,31 @@ func (npm namedPortMapping) getPortMappings() map[string]string {
 // loadBalancerController watches the kubernetes api and adds/removes services
 // from the loadbalancer
 type loadBalancerController struct {
-	client            *client.Client
-	ingController     *framework.Controller
-	endpController    *framework.Controller
-	svcController     *framework.Controller
-	secrController    *framework.Controller
-	mapController     *framework.Controller
-	ingLister         StoreToIngressLister
-	svcLister         cache.StoreToServiceLister
-	endpLister        cache.StoreToEndpointsLister
-	secrLister        StoreToSecretsLister
-	mapLister         StoreToConfigmapLister
-	nginx             *nginx.Manager
-	podInfo           *podInfo
-	defaultSvc        string
-	nxgConfigMap      string
-	tcpConfigMap      string
-	udpConfigMap      string
+	client *client.Client
+
+	ingController  *framework.Controller
+	endpController *framework.Controller
+	svcController  *framework.Controller
+	secrController *framework.Controller
+	mapController  *framework.Controller
+
+	ingLister  StoreToIngressLister
+	svcLister  cache.StoreToServiceLister
+	endpLister cache.StoreToEndpointsLister
+	secrLister StoreToSecretsLister
+	mapLister  StoreToConfigmapLister
+
+	nginx   *nginx.Manager
+	podInfo *podInfo
+
+	defaultSvc string
+
+	nxgConfigMap string
+	tcpConfigMap string
+	udpConfigMap string
+
 	defSSLCertificate string
+	defHealthzURL     string
 
 	recorder record.EventRecorder
 
@@ -127,7 +135,7 @@ type loadBalancerController struct {
 // newLoadBalancerController creates a controller for nginx loadbalancer
 func newLoadBalancerController(kubeClient *client.Client, resyncPeriod time.Duration,
 	defaultSvc, namespace, nxgConfigMapName, tcpConfigMapName, udpConfigMapName,
-	defSSLCertificate string, runtimeInfo *podInfo) (*loadBalancerController, error) {
+	defSSLCertificate, defHealthzURL string, runtimeInfo *podInfo) (*loadBalancerController, error) {
 
 	eventBroadcaster := record.NewBroadcaster()
 	eventBroadcaster.StartLogging(glog.Infof)
@@ -143,6 +151,7 @@ func newLoadBalancerController(kubeClient *client.Client, resyncPeriod time.Dura
 		udpConfigMap:      udpConfigMapName,
 		defSSLCertificate: defSSLCertificate,
 		defaultSvc:        defaultSvc,
+		defHealthzURL:     defHealthzURL,
 		recorder: eventBroadcaster.NewRecorder(api.EventSource{
 			Component: "nginx-ingress-controller",
 		}),
@@ -450,6 +459,7 @@ func (lbc *loadBalancerController) sync(key string) error {
 	}
 
 	ngxConfig := lbc.nginx.ReadConfig(cfg)
+	ngxConfig.HealthzURL = lbc.defHealthzURL
 
 	ings := lbc.ingLister.Store.List()
 	upstreams, servers := lbc.getUpstreamServers(ngxConfig, ings)
@@ -708,6 +718,11 @@ func (lbc *loadBalancerController) getUpstreamServers(ngxCfg config.Configuratio
 				glog.V(3).Infof("error reading white list annotation in Ingress %v/%v: %v", ing.GetNamespace(), ing.GetName(), err)
 			}
 
+			eCORS, err := cors.ParseAnnotations(ing)
+			if err != nil {
+				glog.V(3).Infof("error reading CORS annotation in Ingress %v/%v: %v", ing.GetNamespace(), ing.GetName(), err)
+			}
+
 			host := rule.Host
 			if host == "" {
 				host = defServerName
@@ -740,6 +755,7 @@ func (lbc *loadBalancerController) getUpstreamServers(ngxCfg config.Configuratio
 						loc.Redirect = *locRew
 						loc.SecureUpstream = secUpstream
 						loc.Whitelist = *wl
+						loc.EnableCORS = eCORS
 
 						addLoc = false
 						continue
@@ -754,7 +770,6 @@ func (lbc *loadBalancerController) getUpstreamServers(ngxCfg config.Configuratio
 				}
 
 				if addLoc {
-
 					server.Locations = append(server.Locations, &ingress.Location{
 						Path:           nginxPath,
 						Upstream:       *ups,
@@ -763,6 +778,7 @@ func (lbc *loadBalancerController) getUpstreamServers(ngxCfg config.Configuratio
 						Redirect:       *locRew,
 						SecureUpstream: secUpstream,
 						Whitelist:      *wl,
+						EnableCORS:     eCORS,
 					})
 				}
 			}

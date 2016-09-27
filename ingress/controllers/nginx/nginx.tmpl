@@ -75,7 +75,7 @@ http {
 
     log_format upstreaminfo '{{ if $cfg.useProxyProtocol }}$proxy_protocol_addr{{ else }}$remote_addr{{ end }} - '
         '[$proxy_add_x_forwarded_for] - $remote_user [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent" '
-        '$request_length $request_time $upstream_addr $upstream_response_length $upstream_response_time $upstream_status';
+        '$request_length $request_time [$proxy_upstream_name] $upstream_addr $upstream_response_length $upstream_response_time $upstream_status';
 
     {{/* map urls that should not appear in access.log */}}
     {{/* http://nginx.org/en/docs/http/ngx_http_log_module.html#access_log */}}
@@ -228,6 +228,10 @@ http {
             proxy_set_header Authorization "";
             {{- end }}
 
+            {{ if $location.EnableCORS }}
+            {{ template "CORS" }}
+            {{ end }}
+
             proxy_set_header Host                   $host;
 
             # Pass Real IP
@@ -262,10 +266,17 @@ http {
             {{- end }}
 
             {{- buildProxyPass $location }}
+            set $proxy_upstream_name "{{ $location.Upstream.Name }}";
         }
         {{ end }}
 
         {{ if eq $server.Name "_" }}
+        # health checks in cloud providers require the use of port 80
+        location {{ $cfg.healthzUrl }} {
+            access_log off;
+            return 200;
+        }
+
         # this is required to avoid error if nginx is being monitored
         # with an external software (like sysdig)
         location /nginx_status {
@@ -366,4 +377,39 @@ stream {
             }
         }    
         {{ end }}
+{{ end }}
+
+{{/* CORS support from https://michielkalkman.com/snippets/nginx-cors-open-configuration.html */}}
+{{ define "CORS" }}
+     if ($request_method = 'OPTIONS') {
+        add_header 'Access-Control-Allow-Origin' '*';
+        #
+        # Om nom nom cookies
+        #
+        add_header 'Access-Control-Allow-Credentials' 'true';
+        add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
+        #
+        # Custom headers and headers various browsers *should* be OK with but aren't
+        #
+        add_header 'Access-Control-Allow-Headers' 'DNT,X-CustomHeader,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type';
+        #
+        # Tell client that this pre-flight info is valid for 20 days
+        #
+        add_header 'Access-Control-Max-Age' 1728000;
+        add_header 'Content-Type' 'text/plain charset=UTF-8';
+        add_header 'Content-Length' 0;
+        return 204;
+     }
+     if ($request_method = 'POST') {
+        add_header 'Access-Control-Allow-Origin' '*';
+        add_header 'Access-Control-Allow-Credentials' 'true';
+        add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
+        add_header 'Access-Control-Allow-Headers' 'DNT,X-CustomHeader,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type';
+     }
+     if ($request_method = 'GET') {
+        add_header 'Access-Control-Allow-Origin' '*';
+        add_header 'Access-Control-Allow-Credentials' 'true';
+        add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
+        add_header 'Access-Control-Allow-Headers' 'DNT,X-CustomHeader,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type';
+     }
 {{ end }}
