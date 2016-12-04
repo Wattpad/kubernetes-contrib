@@ -88,11 +88,13 @@ type statusPullRequest struct {
 	Additions int
 	Deletions int
 	ExtraInfo []string
+	BaseRef   string
 }
 
 type e2eQueueStatus struct {
-	E2ERunning *statusPullRequest
-	E2EQueue   []*statusPullRequest
+	E2ERunning  *statusPullRequest
+	E2EQueue    []*statusPullRequest
+	BatchStatus *submitQueueBatchStatus
 }
 
 type submitQueueStatus struct {
@@ -154,7 +156,8 @@ type submitQueueMetadata struct {
 }
 
 type submitQueueBatchStatus struct {
-	Error map[string]string
+	Error   map[string]string
+	Running *prowJob
 }
 
 type prometheusMetrics struct {
@@ -690,6 +693,9 @@ func objToStatusPullRequest(obj *github.MungeObject) *statusPullRequest {
 	if pr.Deletions != nil {
 		res.Deletions = *pr.Deletions
 	}
+	if pr.Base != nil && pr.Base.Ref != nil {
+		res.BaseRef = *pr.Base.Ref
+	}
 
 	prio, ok := obj.Annotations["priority"]
 	if !ok {
@@ -816,8 +822,9 @@ func (sq *SubmitQueue) getGithubE2EStatus() []byte {
 	sq.Lock()
 	defer sq.Unlock()
 	status := e2eQueueStatus{
-		E2EQueue:   sq.getE2EQueueStatus(),
-		E2ERunning: objToStatusPullRequest(sq.githubE2ERunning),
+		E2EQueue:    sq.getE2EQueueStatus(),
+		E2ERunning:  objToStatusPullRequest(sq.githubE2ERunning),
+		BatchStatus: &sq.batchStatus,
 	}
 	return sq.marshal(status)
 }
@@ -1160,8 +1167,8 @@ func (sq *SubmitQueue) handleGithubE2EAndMerge() {
 	}
 }
 
-func (sq *SubmitQueue) mergePullRequest(obj *github.MungeObject, msg string) error {
-	err := obj.MergePR("submit-queue")
+func (sq *SubmitQueue) mergePullRequest(obj *github.MungeObject, msg, extra string) error {
+	err := obj.MergePR("submit-queue" + extra)
 	if err != nil {
 		return err
 	}
@@ -1230,7 +1237,7 @@ func (sq *SubmitQueue) doGithubE2EAndMerge(obj *github.MungeObject) bool {
 
 	if obj.HasLabel(retestNotRequiredLabel) || obj.HasLabel(retestNotRequiredDocsOnlyLabel) {
 		atomic.AddInt32(&sq.instantMerges, 1)
-		sq.mergePullRequest(obj, mergedSkippedRetest)
+		sq.mergePullRequest(obj, mergedSkippedRetest, "")
 		return true
 	}
 
@@ -1288,7 +1295,7 @@ func (sq *SubmitQueue) doGithubE2EAndMerge(obj *github.MungeObject) bool {
 		return true
 	}
 
-	sq.mergePullRequest(obj, merged)
+	sq.mergePullRequest(obj, merged, "")
 	return true
 }
 
